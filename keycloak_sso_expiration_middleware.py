@@ -5,11 +5,10 @@ import jwt
 import requests
 
 from django.utils.deprecation import MiddlewareMixin
-from django.contrib.auth import logout
+from django.contrib.auth import logout, get_backends
 from django.urls import reverse
 from django.shortcuts import redirect
 from django.http import HttpResponse
-from django.contrib.auth import get_backends
 
 from social_django.models import UserSocialAuth
 from social_core.backends.keycloak import KeycloakOAuth2
@@ -37,7 +36,11 @@ class KeycloakSSOExpirationMiddleware(MiddlewareMixin):
                 user._setup()
             user = user._wrapped
 
-        social_auth_user = user.social_auth.get(provider='keycloak')
+        try:
+            social_auth_user = user.social_auth.get(provider='keycloak')
+        except UserSocialAuth.DoesNotExist as error:
+            logger.debug('User does not exist in Keycloak Social Auth provider')
+            return
 
         if self.is_social_auth_user_token_valid(social_auth_user):
             logger.debug('Access token is valid')
