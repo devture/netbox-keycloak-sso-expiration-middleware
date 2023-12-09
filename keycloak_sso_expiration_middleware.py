@@ -1,6 +1,7 @@
 import logging
 
 import jwt
+import json
 
 import requests
 
@@ -42,18 +43,24 @@ class KeycloakSSOExpirationMiddleware(MiddlewareMixin):
             logger.debug('User does not exist in Keycloak Social Auth provider')
             return
 
-        if self.is_social_auth_user_token_valid(social_auth_user):
+        # It seems like extra_data used to be a dict, but is a string in newer versions.
+        extra_data = social_auth_user.extra_data
+        if isinstance(extra_data, str):
+            extra_data = json.loads(extra_data)
+
+        if self.is_social_auth_user_access_token_valid(extra_data['access_token']):
             logger.debug('Access token is valid')
             return
 
         logger.debug('Access token is no longer valid')
 
         try:
-            resp = self.keycloak.refresh_token(social_auth_user.extra_data['refresh_token'])
+            resp = self.keycloak.refresh_token(extra_data['refresh_token'])
 
-            social_auth_user.extra_data['access_token'] = resp['access_token']
-            social_auth_user.extra_data['refresh_token'] = resp['refresh_token']
+            extra_data['access_token'] = resp['access_token']
+            extra_data['refresh_token'] = resp['refresh_token']
 
+            social_auth_user.set_extra_data(extra_data)
             social_auth_user.save()
 
             logger.debug('Refreshed access token')
@@ -68,9 +75,9 @@ class KeycloakSSOExpirationMiddleware(MiddlewareMixin):
 
             return redirect(reverse('login'))
 
-    def is_social_auth_user_token_valid(self, social_auth_user: UserSocialAuth) -> bool:
+    def is_social_auth_user_access_token_valid(self, access_token: str) -> bool:
         try:
-            payload = self.keycloak.user_data(social_auth_user.extra_data['access_token'])
+            payload = self.keycloak.user_data(access_token)
             return True
         except jwt.exceptions.ExpiredSignatureError:
             return False
